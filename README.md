@@ -1,4 +1,4 @@
-# 🚀 Counter Program - Day 1
+# 🚀 Counter Program - Day 3
 
 > **Solana Learning Journey**: Building my first smart contract with Anchor Framework
 
@@ -22,11 +22,13 @@ This is my first Solana smart contract built using the Anchor framework. It's a 
 
 ## ✨ Features
 
-- **Initialize Counter**: Create a new counter account starting at 0
+- **Initialize Counter**: Create a new counter account starting at 0 with PDA-based addressing
 - **Increment**: Increase the counter value by 1
-- **Decrement**: Decrease the counter value by 1 (with underflow protection)
-- **Error Handling**: Prevents counter from going below zero
-- **Comprehensive Tests**: Full test suite with multiple scenarios
+- **Decrement**: Decrease the counter value by 1 (with underflow protection using `checked_sub`)
+- **Reset**: Reset the counter back to 0
+- **Close Account**: Close the counter account and reclaim rent
+- **Owner Validation**: Only the owner can modify their counter
+- **Comprehensive Tests**: Full test suite with account lifecycle management
 
 ---
 
@@ -69,41 +71,67 @@ counter/
 ```rust
 pub fn initialize(ctx: Context<Initialize>) -> Result<()>
 ```
-- Creates a new counter account
-- Initializes count to 0
+- Creates a new counter account using PDAs (Program Derived Addresses)
+- Initializes count to 0, stores owner and bump seed
+- Uses seeds: `["counter", owner.key()]`
 - Requires user signature and pays for account creation
 
 ```rust
-pub fn increment(ctx: Context<Change>) -> Result<()>
+pub fn increment(ctx: Context<Increment>) -> Result<()>
 ```
 - Increments counter by 1
+- Validates owner using `has_one` constraint
 - Requires mutable counter account
 
 ```rust
-pub fn decrement(ctx: Context<Change>) -> Result<()>
+pub fn decrement(ctx: Context<Decrement>) -> Result<()>
 ```
 - Decrements counter by 1
-- Includes underflow protection
-- Returns error if count is already 0
+- Uses `checked_sub()` for safe underflow handling
+- Sets to 0 if already at 0 (no error thrown)
+- Validates owner using `has_one` constraint
+
+```rust
+pub fn reset(ctx: Context<Decrement>) -> Result<()>
+```
+- Resets counter to 0
+- Useful for test cleanup and user resets
+- Validates owner using `has_one` constraint
+
+```rust
+pub fn close(ctx: Context<Close>) -> Result<()>
+```
+- Closes the counter account
+- Returns rent to the owner
+- Uses `close = owner` constraint for automatic rent reclamation
 
 ### Account Structure
 
 ```rust
 pub struct Counter {
-    pub count: u64,
+    pub owner: Pubkey,  // 32 bytes
+    pub count: u64,     // 8 bytes
+    pub bump: u8,       // 1 byte
 }
 ```
-- Single field storing a 64-bit unsigned integer
-- Account space: 8 bytes (discriminator) + 8 bytes (count)
+- **owner**: Stores the public key of the counter owner
+- **count**: 64-bit unsigned integer for the counter value
+- **bump**: PDA bump seed for efficient account derivation
+- **Account space**: 8 bytes (discriminator) + 32 + 8 + 1 = 49 bytes
 
 ### Error Handling
 
+Day 3 refactored error handling to use Rust's safe arithmetic:
 ```rust
-pub enum ErrorCode {
-    #[msg("Cannot decrement below zero")]
-    CounterUnderflow,
+let result = counter.count.checked_sub(1);
+match result {
+    Some(value) => { counter.count = value },
+    None => { counter.count = 0 }  // Graceful handling instead of panic
 }
 ```
+- Removed custom `CounterUnderflow` error
+- Uses `checked_sub()` for safe subtraction
+- Gracefully sets to 0 on underflow instead of throwing error
 
 ---
 
@@ -166,11 +194,12 @@ anchor test --skip-local-validator
 
 ### Test Coverage
 
-✅ **Initialize Test**: Verifies counter starts at 0  
-✅ **Increment Test**: Confirms counter increases by 1  
-✅ **Decrement Test**: Confirms counter decreases by 1  
-✅ **Multiple Increments**: Tests consecutive operations  
-✅ **Underflow Protection**: (Implicit) Prevents negative values  
+✅ **Initialize Test**: Verifies counter starts at 0 with correct owner and bump
+✅ **Increment Test**: Confirms counter increases by 1 (with reset)
+✅ **Decrement Test**: Confirms counter decreases by 1 (with reset)
+✅ **Close Account Test**: Verifies account closure and rent reclamation
+✅ **Reinitialize Test**: Confirms account can be recreated after closing
+✅ **Reset Helper**: Utility function for test isolation  
 
 ---
 
@@ -205,25 +234,76 @@ anchor test --skip-local-validator
    - Signer requirements for security
    - Payer designation for account creation
 
+### Day 2 Enhancements
+
+1. **Program Derived Addresses (PDAs)**
+   - Deterministic account addresses using seeds
+   - `seeds = [b"counter", owner.key().as_ref()]`
+   - Storing and using bump seeds for efficiency
+   - No need for separate keypair generation
+
+2. **Owner Management**
+   - Added `owner` field to Counter struct
+   - `has_one = owner` constraint for validation
+   - Per-user counter isolation using PDAs
+
+3. **Context Separation**
+   - Renamed `Change` to `Increment` and `Decrement`
+   - More explicit and self-documenting code
+   - Better type safety and intent clarity
+
+### Day 3 Advanced Features
+
+1. **Safe Arithmetic in Rust**
+   - `checked_sub()` for overflow/underflow protection
+   - Pattern matching on `Option<T>` results
+   - Graceful error handling vs panicking
+   - Removed dependency on custom error types
+
+2. **Account Lifecycle Management**
+   - `close = owner` constraint for account closure
+   - Automatic rent reclamation to owner
+   - Account reinitialization after closing
+   - Resource cleanup best practices
+
+3. **Reset Functionality**
+   - Reusable context for similar operations
+   - Test isolation with helper functions
+   - State management between tests
+
+4. **Advanced Testing Patterns**
+   - Helper functions for test setup (`reset()`)
+   - Testing account closure with error validation
+   - Testing full lifecycle: init → use → close → reinit
+   - Proper test isolation to prevent flaky tests
+
 ---
 
 ## 🤝 Skills Demonstrated
 
-- ✅ Rust programming
+- ✅ Rust programming with safe arithmetic
 - ✅ Blockchain smart contract development
 - ✅ Anchor framework proficiency
+- ✅ Program Derived Addresses (PDAs)
+- ✅ Account lifecycle management (init, close, reinit)
 - ✅ Test-driven development (TDD)
 - ✅ Error handling and validation
 - ✅ TypeScript integration
 - ✅ Solana CLI operations
+- ✅ Test isolation and helper patterns
 
 ---
 
 ## 📝 Notes
 
-This is a learning project created on **Day 1** of my Solana development journey. The code is intentionally simple to focus on understanding core concepts before moving to more complex patterns.
+This is a learning project tracking my Solana development journey:
+- **Day 1**: Basic counter with increment/decrement
+- **Day 2**: Added PDAs, owner management, and better structure
+- **Day 3**: Added reset/close functionality, safe arithmetic, and advanced testing
 
-**Program ID**: `EWV8Q3PXyaHQUBW3D7GexkUX2rb7v6xrQKwizpJKJPLF`
+The program has evolved from a simple counter to a production-ready smart contract with proper resource management and security patterns.
+
+**Current Program ID**: `HRg4xDkNsQ2AT61zQcWedJUkoEVRKjoejipS9YErj9XM`
 
 ---
 
@@ -246,7 +326,7 @@ ISC
 
 **Built with ❤️ while learning Solana**
 
-*Day 1 of my blockchain development journey*
+*Day 3 of my blockchain development journey*
 
 </div>
 
