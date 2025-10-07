@@ -1,114 +1,164 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { Counter } from "../target/types/counter";
+import { AnchorProvider, Program } from "@coral-xyz/anchor";
+import { Counter } from "../target/types/counter.js";
 import { expect } from "chai";
+import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 
 describe("counter", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
   const program = anchor.workspace.counter as Program<Counter>;
 
   const provider = anchor.AnchorProvider.env();
-  const counterAccount = anchor.web3.Keypair.generate();
+  const [counterPDA, bump] = PublicKey.findProgramAddressSync(
+    [Buffer.from("counter"), provider.publicKey.toBuffer()],
+    program.programId
+  );
 
-  it("Initialize the counter", async () => {
+  it("should initialize the counter", async () => {
     const tx = await program.methods
       .initialize()
       .accounts({
-        counter: counterAccount.publicKey,
-        user: provider.wallet.publicKey,
+        owner: provider.wallet.publicKey,
       })
-      .signers([counterAccount])
       .rpc();
 
-    console.log("✅ Transaction signature:", tx);
+    console.log("Initialize tx:", tx);
 
-    const account = await program.account.counter.fetch(
-      counterAccount.publicKey
+    // Fetch the counter account to verify
+    const counterAccount = await program.account.counter.fetch(counterPDA);
+
+    // Assertions
+    expect(counterAccount.owner.toString()).to.equal(
+      provider.publicKey.toString()
     );
-    console.log("Counter value:", account.count.toString());
-    expect(account.count.toNumber()).to.equal(0);
-    console.log("✅ Counter initialized successfully");
+    expect(counterAccount.count.toNumber()).to.equal(0);
+    expect(counterAccount.bump).to.equal(bump);
+
+    console.log("Counter initialized:", {
+      owner: counterAccount.owner.toString(),
+      count: counterAccount.count.toNumber(),
+      bump: counterAccount.bump,
+    });
   });
 
-  it("Increment the counter", async () => {
+  it("should increment the counter", async () => {
+    await reset({ program, counterPDA, provider });
     const tx = await program.methods
       .increment()
       .accounts({
-        counter: counterAccount.publicKey,
-        user: provider.wallet.publicKey,
+        counter: counterPDA,
+        owner: provider.publicKey,
       })
       .rpc();
-    console.log("✅ Transaction signature:", tx);
+    console.log("Increment tx:", tx);
 
-    const account = await program.account.counter.fetch(
-      counterAccount.publicKey
-    );
-    console.log("Counter value:", account.count.toString());
-    expect(account.count.toNumber()).to.equal(1);
-    console.log("✅ Counter incremented successfully");
+    const counterAccount = await program.account.counter.fetch(counterPDA);
+    expect(counterAccount.count.toNumber()).to.equal(1);
+    expect(counterAccount.bump).to.equal(bump);
+
+    console.log("Counter incremented:", {
+      owner: counterAccount.owner.toString(),
+      count: counterAccount.count.toNumber(),
+      bump: counterAccount.bump,
+    });
   });
 
-  it("Decrement the COunter", async () => {
-    const tx = await program.methods
+  it("should decrement the counter", async () => {
+    await reset({ program, counterPDA, provider });
+
+    const tx1 = await program.methods
+      .increment()
+      .accounts({
+        counter: counterPDA,
+        owner: provider.publicKey,
+      })
+      .rpc();
+    console.log("Increment tx:", tx1);
+
+    const tx2 = await program.methods
       .decrement()
       .accounts({
-        counter: counterAccount.publicKey,
-        user: provider.wallet.publicKey,
+        counter: counterPDA,
+        owner: provider.publicKey,
       })
       .rpc();
-    console.log("✅ Transaction signature:", tx);
+    console.log("Decrement tx:", tx2);
 
-    const account = await program.account.counter.fetch(
-      counterAccount.publicKey
-    );
-    console.log("Counter value:", account.count.toString());
-    expect(account.count.toNumber()).to.equal(0);
-    console.log("✅ Counter decremented successfully");
+    const counterAccount = await program.account.counter.fetch(counterPDA);
+    expect(counterAccount.count.toNumber()).to.equal(0);
+    expect(counterAccount.bump).to.equal(bump);
+
+    console.log("Counter decremented:", {
+      owner: counterAccount.owner.toString(),
+      count: counterAccount.count.toNumber(),
+      bump: counterAccount.bump,
+    });
   });
 
-  it("Increments the counter multiple times", async () => {
+  it("should close the counter account", async () => {
     const tx = await program.methods
-      .increment()
+      .close()
       .accounts({
-        counter: counterAccount.publicKey,
-        user: provider.wallet.publicKey,
+        counter: counterPDA,
+        owner: provider.publicKey,
       })
       .rpc();
-    console.log("✅ Transaction signature:", tx);
+    console.log("Close tx:", tx);
 
-    const account = await program.account.counter.fetch(
-      counterAccount.publicKey
+    // Verify the account is closed by trying to fetch it
+    try {
+      await program.account.counter.fetch(counterPDA);
+      throw new Error("Account should be closed");
+    } catch (error) {
+      expect(error.message).to.include("Account does not exist");
+      console.log("Counter account successfully closed");
+    }
+  });
+
+  it("should reinitialize the counter after closing", async () => {
+    const tx = await program.methods
+      .initialize()
+      .accounts({
+        owner: provider.wallet.publicKey,
+      })
+      .rpc();
+
+    console.log("Reinitialize tx:", tx);
+
+    // Fetch the counter account to verify
+    const counterAccount = await program.account.counter.fetch(counterPDA);
+
+    // Assertions
+    expect(counterAccount.owner.toString()).to.equal(
+      provider.publicKey.toString()
     );
-    console.log("Counter value:", account.count.toString());
-    expect(account.count.toNumber()).to.equal(1);
-    console.log("✅ Counter incremented successfully");
+    expect(counterAccount.count.toNumber()).to.equal(0);
+    expect(counterAccount.bump).to.equal(bump);
 
-    const tx2 = await program.methods.increment().accounts({
-      counter: counterAccount.publicKey,
-      user: provider.wallet.publicKey,
-    })
-    .rpc();
-    console.log("✅ Transaction signature:", tx2);
-    
-    const account2 = await program.account.counter.fetch(
-      counterAccount.publicKey
-    );
-    console.log("Counter value:", account2.count.toString());
-    expect(account2.count.toNumber()).to.equal(2);
-    console.log("✅ Counter incremented successfully");
-
-    const tx3 = await program.methods.increment().accounts({
-      counter: counterAccount.publicKey,
-      user: provider.wallet.publicKey,
-    })
-    .rpc();
-    console.log("✅ Transaction signature:", tx3);
-
-    const account3 = await program.account.counter.fetch(
-      counterAccount.publicKey
-    );
-    console.log("Counter value:", account3.count.toString());
-    expect(account3.count.toNumber()).to.equal(3);
-    console.log("✅ Counter incremented successfully");
+    console.log("Counter reinitialized:", {
+      owner: counterAccount.owner.toString(),
+      count: counterAccount.count.toNumber(),
+      bump: counterAccount.bump,
+    });
   });
 });
+
+const reset = async ({
+  program,
+  counterPDA,
+  provider,
+}: {
+  program: Program<Counter>;
+  counterPDA: PublicKey;
+  provider: AnchorProvider;
+}) => {
+  console.log("Resetting counter...");
+  const tx = await program.methods
+    .reset()
+    .accounts({
+      counter: counterPDA,
+      owner: provider.publicKey,
+    })
+    .rpc();
+  console.log("Reset tx:", tx);
+};

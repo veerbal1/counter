@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("EWV8Q3PXyaHQUBW3D7GexkUX2rb7v6xrQKwizpJKJPLF");
+declare_id!("HRg4xDkNsQ2AT61zQcWedJUkoEVRKjoejipS9YErj9XM");
 
 #[program]
 pub mod counter {
@@ -33,6 +33,16 @@ pub mod counter {
         }
         Ok(())
     }
+
+    pub fn reset(ctx: Context<Decrement>) -> Result<()>{
+        let counter = &mut ctx.accounts.counter;
+        counter.count = 0;
+        Ok(())
+    }
+
+    pub fn close(_ctx: Context<Close>) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -60,6 +70,20 @@ pub struct Increment<'info> {
 pub struct Decrement<'info> {
     #[account(mut, seeds = [b"counter", owner.key().as_ref()], bump= counter.bump, has_one = owner)]
     pub counter: Account<'info, Counter>,
+    pub owner: Signer<'info>
+}
+
+#[derive(Accounts)]
+pub struct Close<'info> {
+    #[account(
+        mut, 
+        seeds = [b"counter", owner.key().as_ref()], 
+        bump = counter.bump,
+        has_one = owner,
+        close = owner
+    )]
+    pub counter: Account<'info, Counter>,
+    #[account(mut)]
     pub owner: Signer<'info>
 }
 
